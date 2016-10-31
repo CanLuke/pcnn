@@ -1,0 +1,81 @@
+在Matlab中调用C/C++程序有以下优点：
+（1）对于用C/C++语言编写好的程序，我们不需要再改写成Matlab程序；
+（2）在Matlab中执行特别慢的程序，可以编写成C/C++函数以加快运算速度。如Matlab执行多层for循环速度特别慢，可以考虑用C/C++来实现这部分功能。
+为了能够调用C/C++程序，必须首先按照Matlab的标准将其编译成MEX文件。MEX文件是Matlab可以识别的动态链接二进制文件。MEX是Matlab executable的缩写。
+创建MEX文件包含以下步骤。（我们以矩阵的加法为例）
+1. 准备好C/C++源程序。这部分工作可以在C/C++的集成开发环境中完成。本文使用的是Visual Studio 2008。
+新建H文件MatrixAdd.h，内容如下：
+#ifndef MATRIX_ADD_H
+#define MATRIX_ADD_H 
+// C = A + B
+void MatrixAdd(double *A, double *B, double *C, int M, int N); 
+#endif
+ 
+新建CPP文件MatrixAdd.cpp，内容如下：
+#include "MatrixAdd.h"
+void MatrixAdd(double *A, double *B, double *C, int M, int N)
+{
+ for (int i = 0; i < N; i++)
+ {
+  for (int j = 0; j < M; j++)
+  {
+   int offset = i * M + j;
+   C[offset] = A[offset] + B[offset];
+  }
+ }
+}
+ 
+2.  创建接口函数，也就是编写mexFunction函数。Matlab通过这个函数与C/C++编写的程序进行数据传递，必须严格按照Matlab的标准编写。这部分工作可以在Matlab的Editor中实现，也可以在Visual Studio 2008中实现。
+mexFunction的函数原型如下：
+void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]);
+nlhs表示输出参数的个数（The number of left-hand output arguments），也是数组plhs的长度。
+plhs表示输出参数的指针数组（The array of left-hand output arguments），长度为nlhs。例如：plhs[0]指向第一个输出参数的地址，plhs[1]指向第二个输出参数的地址。指针类型为mxArray，mxArray为Matlab提供的一个结构体，并提供了一系列函数来对该结构体进行操作。
+nrhs表示输入参数的个数（The number of right-hand intput arguments），也是数组prhs的长度。
+prhs表示输出参数的指针数组（The array of right-hand intput arguments），长度为nrhs。一般用const修饰prhs，表示输入的数据不能改变。
+我们新建CPP文件mexFunction.cpp，内容如下。
+#include <mex.h>
+#include "MatrixAdd.h"
+void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
+{
+ if (nrhs != 2)
+ {
+  mexErrMsgTxt("Two input arguments required.");
+ }
+ else if (nlhs != 1)
+ {
+  mexErrMsgTxt("Too many output arguments.");
+ }
+ int M = mxGetM(prhs[0]);
+ int N = mxGetN(prhs[0]);
+ if ((M != mxGetM(prhs[1])) || N != mxGetN(prhs[1]))
+ {
+  mexErrMsgTxt("Matrix dimensions must agree.");
+ }
+ double *A = mxGetPr(prhs[0]);
+ double *B = mxGetPr(prhs[1]);
+ plhs[0] = mxCreateDoubleMatrix(M, N, mxREAL);
+ double *C = mxGetPr(plhs[0]);
+ MatrixAdd(A,B,C,M,N);
+}
+注意：
+（1） 对于输出参数，我们必须手动为其分配空间，相关函数为mxCreateDoubleMatrix。
+（2） Matlab中的二维数组是按列存储的，因此通过函数mxGetPr获得的指针所指向的数组的元素也是按列存储的，在C/C++函数中取值的时候一定要注意。
+ 
+3. 将文件MatrixAdd.cpp，MatrixAdd.h和mexFunction.cpp放到同一目录下，如C:\Users\hbc\Matlab，打开Matlab，在Command Window窗口中输入 cd C:\Users\hbc\Matlab，即将Current Folder设置为C:\Users\hbc\Matlab。
+然后输入 mex -setup，按照提示选择合适的编译器，此处为Microsoft Visual C++ 2008 SP1。
+再输入 mex MatrixAdd.cpp mexFunction.cpp，完成编译后，生成文件MatrixAdd.mexw32。在以后使用时，我们仅需要MatrixAdd.mexw32即可。
+注意：
+（1）生成的mexw32文件以mex后的第一个文件命名，因此需要把MatrixAdd.cpp放在mexFunction.cpp的前面。
+（2）文件扩展名mexw32表示Windows 32平台下的mex文件，在Windows 64平台下的扩展名为mexw64，在Linux 32平台下的扩展名为mexglx，在Linux 64平台下的扩展名为mexa64。
+（3） 如果我们把扩展名改为dll，也可以正常使用，但会产生如下警告信息：
+Warning: Calling MEX-file 'C:\Users\hbc\Matlab\MatrixAdd.dll'.
+MEX-files with .dll extensions will not execute in a future version of MATLAB.
+这是因为在Windows 32平台上，从Version 7.1开始，Matlab将dll作为与mexw32等价的MEX文件扩展名。Version 7.10以后，Matlab不再支持创建以dll作为扩展名的MEX文件，但可以执行以dll为扩展名的MEX文件。未来的版本可能不再支持以dll为扩展名的MEX文件，因此最好都以mexw32为扩展名。
+ 
+4. 下面测试一下我们的函数。
+>> A=rand(100,100);
+>> B=rand(100,100);
+>> C=MatrixAdd(A,B);
+>> norm(C-A-B)
+ans =
+  1.1437e-015
